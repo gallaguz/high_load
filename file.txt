@@ -362,3 +362,5 @@ sudo chkconfig mysqld on
 mysql -u root -p
     show databases;
 ---------------------------------------------------------------------
+
+
