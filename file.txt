@@ -1,0 +1,364 @@
+---------------------------------------------------------------------
+1 - Внутри машины
+    sudo vi /etc/ssh/sshd_config
+        PasswordAuthentication yes
+        service sshd restart
+---------------------------------------------------------------------
+2 - ssh
+    vm_1
+    ssh root@127.0.0.1 -p 2222
+    vm_2
+    ssh root@127.0.0.1 -p 2200
+
+        sftp config
+            tools / deployment / config
+            type: sftp
+            ssh config: root@localhost:2222
+            root path: /
+            web server: http://test
+            host: localhost
+            port: 2222
+            username: root
+            password: vagrant
+---------------------------------------------------------------------
+3 - update
+    sudo yum update -y
+---------------------------------------------------------------------
+4 - install (nginx php)
+    sudo yum install epel-release -y
+    rpm -Uvh http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+    sudo yum install net-tools nginx nano vim php72 php72-php-fpm zip unzip wget
+    sudo yum-config-manager --enable remi-php72
+    yum update
+    yum install php-cli
+    //sudo ln —s /usr/bin/php72 /usr/bin/php
+---------------------------------------------------------------------
+5 - edit php-fpm conf
+    sudo vim /etc/opt/remi/php72/php-fpm.d/www.conf
+        user = nginx
+        group = nginx
+        listen = /var/run/php-fpm.sock
+        listen.owner = nginx
+        listen.group = nginx
+        listen.mode = 0660
+---------------------------------------------------------------------
+6 - SELinux
+    setenforce 0
+    sudo vim /etc/selinux/config
+        SELINUX=disabled
+---------------------------------------------------------------------
+7 - mkdir
+    sudo mkdir -p /var/www/test.local
+    sudo chown -R vagrant:nginx /var/www/test.local/
+    sudo chmod -R 0775 /var/www/test.local/
+    // visudo
+    // username ALL=(ALL) ALL
+---------------------------------------------------------------------
+8 - create conf files
+    sudo vim /etc/nginx/conf.d/test.conf
+        server {
+            listen 8080;
+            server_name test.local;
+            root /var/www/test.local;
+            index index.php;
+            location ~* .(jpg|jpeg|gif|css|png|js|ico|html)$ {
+                access_log off;
+                expires max;
+            }
+            location / {
+                try_files $uri $uri/ /index.php?$query_string;
+            }
+            location ~* .php$ {
+                try_files $uri = 404;
+                fastcgi_split_path_info ^(.+.php)(/.+)$;
+                fastcgi_pass unix:/var/run/php-fpm.sock;
+                fastcgi_index index.php;
+                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                include fastcgi_params;
+            }
+        }
+
+    sudo vim /etc/nginx/conf.d/proxy.conf
+        upstream backend {
+            server 127.0.0.1:8080;
+            server 127.0.0.1:8081;
+        }
+
+        server {
+            listen 8888;
+
+            location / {
+                proxy_pass http://backend;
+                proxy_set_header   Host $host;
+                proxy_set_header   X-Real-IP $remote_addr;
+                proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header   X-Forwarded-Host $server_name;
+            }
+        }
+---------------------------------------------------------------------
+    /etc/nginx/nginx.conf
+
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log;
+    pid /run/nginx.pid;
+    include /usr/share/nginx/modules/*.conf;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log  /var/log/nginx/access.log  main;
+
+        sendfile            on;
+        tcp_nopush          on;
+        tcp_nodelay         on;
+        keepalive_timeout   65;
+        types_hash_max_size 2048;
+
+        include             /etc/nginx/mime.types;
+        default_type        application/octet-stream;
+
+        include /etc/nginx/conf.d/*.conf;
+    }
+---------------------------------------------------------------------
+9 - nginx
+    nginx -t
+    sudo systemctl enable nginx
+    sudo systemctl restart nginx
+        sudo systemctl status nginx
+    sudo systemctl enable php72-php-fpm
+    sudo systemctl restart php72-php-fpm
+        sudo systemctl status php72-php-fpm
+
+    curl localhost:8080
+---------------------------------------------------------------------
+10 - nginx logs
+    sudo tail -f /var/log/nginx/error.log
+    sudo tail -f /var/log/nginx/access.log
+---------------------------------------------------------------------
+11 - apache
+    sudo yum install httpd php72-mod_php
+    sudo systemctl enable httpd
+    sudo systemctl start httpd
+    sudo systemctl status httpd
+    sudo chkconfig httpd on
+
+    sudo mkdir -p /var/www/html/test.local
+    sudo mkdir -p /var/www/html/test.local/log
+    sudo chown -R vagrant:apache /var/www/html
+    sudo chmod -R 755 /var/www
+---------------------------------------------------------------------
+sudo vim /etc/httpd/conf/httpd.conf
+
+ServerRoot "/etc/httpd"
+Listen 8081
+Include conf.modules.d/*.conf
+User apache
+Group apache
+ServerAdmin root@localhost
+
+<Directory />
+    AllowOverride none
+    Require all denied
+</Directory>
+
+DocumentRoot "/var/www/html"
+
+<Directory "/var/www/htm">
+    AllowOverride None
+    # Allow open access:
+    Require all granted
+</Directory>
+
+<Directory "/var/www/html">
+    AllowOverride None
+    Require all granted
+</Directory>
+
+<IfModule dir_module>
+    DirectoryIndex index.html
+</IfModule>
+
+<Files ".ht*">
+    Require all denied
+</Files>
+
+ErrorLog "logs/error_log"
+
+LogLevel warn
+
+<IfModule log_config_module>
+    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
+    LogFormat "%h %l %u %t \"%r\" %>s %b" common
+
+    <IfModule logio_module>
+      LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\" %I %O" combinedio
+    </IfModule>
+
+    CustomLog "logs/access_log" combined
+</IfModule>
+
+<IfModule alias_module>
+    ScriptAlias /cgi-bin/ "/var/www/cgi-bin/"
+</IfModule>
+
+<Directory "/var/www/cgi-bin">
+    AllowOverride None
+    Options None
+    Require all granted
+</Directory>
+
+<IfModule mime_module>
+    TypesConfig /etc/mime.types
+    AddType application/x-compress .Z
+    AddType application/x-gzip .gz .tgz
+    AddType text/html .shtml
+    AddOutputFilter INCLUDES .shtml
+</IfModule>
+
+AddDefaultCharset UTF-8
+
+<IfModule mime_magic_module>
+    MIMEMagicFile conf/magic
+</IfModule>
+
+EnableSendfile on
+
+IncludeOptional conf.d/*.conf
+---------------------------------------------------------------------
+sudo vim /etc/httpd/conf.d/test.conf
+    <VirtualHost *:8081>
+            #ServerName test.local
+
+            ServerAdmin webmaster@localhost
+            DocumentRoot /var/www/html/test.local
+
+            DirectoryIndex index.php
+
+            ErrorLog /var/www/html/test.local/log/error.log
+            CustomLog /var/www/html/test.local/log/requests.log combined
+    </VirtualHost>
+---------------------------------------------------------------------
+    sudo systemctl restart httpd
+    sudo systemctl status httpd.service -l
+---------------------------------------------------------------------
+12 - MariaBD
+wget https://downloads.mariadb.com/MariaDB/mariadb_repo_setup
+chmod +x mariadb_repo_setup
+sudo ./mariadb_repo_setup
+sudo yum install MariaDB-server
+sudo systemctl start mariadb.service
+sudo mysql_secure_installation
+
+    Change the root password? [Y/n] y
+        root root
+    Remove anonymous users? [Y/n] n
+    Disallow root login remotely? [Y/n] n
+    Remove test database and access to it? [Y/n] n
+    Reload privilege tables now? [Y/n] y
+
+sudo systemctl restart mariadb.service
+sudo systemctl status mariadb.service
+
+mysql -u root -p
+USE mysql;
+SELECT user,host FROM user;
+GRANT ALL PRIVILEGES ON *.* TO root@'%' IDENTIFIED BY 'root' WITH GRANT OPTION;
+flush privileges;
+
+mysql -u root -p < db.sql
+mysql -u root -p skytech < explain_models.sql
+---------------------------------------------------------------------
+13 - mysqltuner
+    wget https://raw.githubusercontent.com/major/MySQLTuner-perl/master/mysqltuner.pl
+    perl mysqltuner.pl
+---------------------------------------------------------------------
+14 - composer
+
+sudo yum install composer
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php
+php -r "unlink('composer-setup.php');"
+sudo mv composer.phar /usr/bin/composer
+
+cd /var/www/test.local
+composer require monolog/monolog
+---------------------------------------------------------------------
+15 - monolog
+
+composer require monolog/monolog
+
+    <?php
+    require_once('vendor/autoload.php');
+    use Monolog\Logger;
+    use Monolog\Handler\StreamHandler;
+    // create a log channel
+    $log = new Logger('name');
+    $log->pushHandler(new StreamHandler('log/my.log', Logger::WARNING));
+    // add records to the log
+    $log->warning('Foo');
+    $log->error('Bar');
+---------------------------------------------------------------------
+16 - debug
+
+sudo yum install php72-php-pecl-xdebug
+sudo vim /etc/opt/remi/php72/php.d/15-xdebug.ini
+    xdebug.max_nesting_level = 50
+    xdebug.dump_once = true
+    xdebug.dump_globals = true
+    xdebug.dump_undefined = true
+    xdebug.dump.SERVER = REQUEST_METHOD, REQUEST_URI, HTTP_USER_AGENT
+    xdebug.dump.REQUEST=*
+    xdebug.show_exception_trace = 1
+    xdebug.show_local_vars = 1
+    xdebug.trace_format = 0
+    xdebug.auto_trace = true
+    xdebug.trace_output_dir = /var/www/test.local/log/traces
+    xdebug.trace_output_name = trace.%c.%p
+    xdebug.collect_params = 4
+    xdebug.collect_includes = true
+    xdebug.collect_return = true
+    xdebug.show_mem_delta = true
+
+mkdir /var/www/test.local/log/traces
+sudo chown -R vagrant:nginx /var/www/test.local/
+sudo chmod a+rwx /var/www/test.local/log/traces
+sudo systemctl restart php72-php-fpm.service
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+MYSQL - bad variant
+
+rpm -Uvh https://repo.mysql.com/mysql80-community-release-el7-3.noarch.rpm
+sed -i 's/enabled=1/enabled=0/' /etc/yum.repos.d/mysql-community.repo
+yum --enablerepo=mysql80-community install mysql-community-server
+service mysqld start
+grep "A temporary password" /var/log/mysqld.log
+    2020-12-14T16:59:56.464283Z 6 [Note] [MY-010454] [Server] A temporary
+    password is generated for root@localhost: deIPy??pq0&H
+mysql_secure_installation
+
+    Remove anonymous users? (Press y|Y for Yes, any other key for No) : y
+    Disallow root login remotely? (Press y|Y for Yes, any other key for No) : y
+    Remove test database and access to it? (Press y|Y for Yes, any other key for No) : y
+    Reload privilege tables now? (Press y|Y for Yes, any other key for No) : y
+
+sudo vim /etc/my.cnf.d/server.cnf
+    bind-address=0.0.0.0
+
+sudo systemctl restart mysqld
+sudo systemctl status mysqld
+sudo chkconfig mysqld on
+mysql -u root -p
+    show databases;
+---------------------------------------------------------------------

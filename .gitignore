@@ -1,0 +1,4 @@
+vm_1/.vagrant/*
+.idea/*
+vm_2/.vagrant/*
+db/*
