@@ -331,6 +331,7 @@ sudo chown -R vagrant:nginx /var/www/test.local/
 sudo chmod a+rwx /var/www/test.local/log/traces
 sudo systemctl restart php72-php-fpm.service
 ---------------------------------------------------------------------
+17 - Replication
 
 ---------------------------------------------------------------------
 
